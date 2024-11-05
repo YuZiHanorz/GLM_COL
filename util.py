@@ -170,6 +170,14 @@ def step_AMP(a, v, chi_uu, go, F):
 
     return a_N, v_N, psi_uu_N, go_N, phi_AMP
 
+def get_overlapS(marginal_u, s_star):
+    s_bar = np.sign(2*marginal_u[:,0]-1)
+    return np.abs(np.mean(s_bar*s_star))
+
+def get_overlapW(a, w_star):
+    w_bar = np.sign(a)
+    return np.abs(np.mean(w_bar*w_star))
+
 def get_psi_uu(Q, V):
     psi_uu_n = 0.5 * (special.erf((tao-Q)/np.sqrt(2*V)) + special.erf((tao+Q)/np.sqrt(2*V))).reshape(-1,1)
     psi_uu_p = 1 - psi_uu_n

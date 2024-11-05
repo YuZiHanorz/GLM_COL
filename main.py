@@ -70,11 +70,11 @@ sampled_ids_n = np.random.choice(N, 40)
 sampled_ids_u = np.random.choice(M, 40)
 sampled_ids_ul = np.random.choice(factor_edge_num, 40)
 
-'''amp-bp-step'''
 for iter in tqdm(range(maxIter)):
     break_flag = False
-    plot_flag = False
+    plot_flag = iter % 100 == 1
     
+    '''amp-bp-step'''
     log_chi_ul_N, chi_uu_N, marginal_u_N, Phi_BP = step_BP(psi_uu, log_chi_ul, l_u_to_v_l_arr, u_l_to_lprime_u_arr, 
     factor_edge_arr[:,0], u_to_l_u_arr, k, N)
     a_N, v_N, psi_uu_N, go_N, phi_AMP = step_AMP(a, v, chi_uu, go, F)
@@ -92,44 +92,17 @@ for iter in tqdm(range(maxIter)):
     psi_uu = damping * psi_uu + (1-damping) * psi_uu_N
     go = damping * go + (1-damping) * go_N
     
-    oS, oW = get_overlapS(marginals, ss, rho), get_overlapW(a, ws, wRademacher)
-        #print(oS, oW)
-        #print(FBp, FAmp)
-        
+    '''compute overlap'''
+    oS, oW = get_overlapS(marginal_u, s_star), get_overlapW(a, w_star)
     oSpr.append(oS)
     oSpr.pop(0)
     oWpr.append(oW)
     oWpr.pop(0)
     if iter > minIter and np.std(oSpr) < err and np.std(oWpr) < err:
         break_flag = True
-    
-    
-    '''
-    logChisN, chisTN, marginalsN, FBp = stepBP(logChis, marginals, psis, corrLN, edgesIn, edgesInT, cs, pS)
-    aN, vN, psisN, goPrevN, FAmp = stepAMP(a, v, chisT[:,0], goPrev, F, wRademacher)
-    
-    a_error_list.append(np.linalg.norm(aN - a))
-    v_error_list.append(np.linalg.norm(vN - v) )
-    marginal_error_list.append(np.linalg.norm(marginalsN - marginals) )
-    
-    logChis, chisT, marginals = inter*logChis+(1-inter)*logChisN, inter*chisT+(1-inter)*chisTN,\
-                                inter*marginals+(1-inter)*marginalsN
-    a, v, psis, goPrev = inter*a+(1-inter)*aN, inter*v+(1-inter)*vN,\
-                            inter*psis+(1-inter)*psisN, inter*goPrev+(1-inter)*goPrevN
-    
-    oS, oW = AB.overlapS(marginals, ss, rho), AB.overlapW(a, ws, wRademacher)
-    #print(oS, oW)
-    #print(FBp, FAmp)
-    
-    oSpr.append(oS)
-    oSpr.pop(0)
-    oWpr.append(oW)
-    oWpr.pop(0)
-    if t>minIter and np.std(oSpr)<err and np.std(oWpr)<err:
+
+    if plot_flag:
         break
     
-overlapS.append(np.mean(oSpr))
-overlapW.append(np.mean(oWpr))
-Finfo = AB.phiInfo(ss, edgesInT, corrLN, alpha, ci, co, rho, wRademacher)
-Fs_Finfos.append(FBp+FAmp-Finfo)
-'''
+    if break_flag:
+        break
