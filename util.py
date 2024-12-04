@@ -10,6 +10,7 @@ import numpy as np
 epsilon = 2**(-200)
 tao = np.sqrt(2)*special.erfinv(0.5)
 beta = np.inf
+breakSymmtry = 0
 
 def createGraph(s_star, d, k, seed):
     """Generates the random graph given colors of the nodes"""
@@ -84,7 +85,7 @@ def createGraph(s_star, d, k, seed):
     
     return factor_edge_num, factor_edge_arr, l_u_to_v_l_arr, u_l_to_lprime_u_arr, u_to_l_u_arr
 
-def uninformed_init(N, M, F, factor_edge_num, ampInit_seed):
+def uninformed_init(N, M, F, factor_edge_num, ampInit_seed, w_star):
     """
     uninformed initialization
     """
@@ -94,8 +95,32 @@ def uninformed_init(N, M, F, factor_edge_num, ampInit_seed):
     chi_uu = np.ones((M, 2))/2
     marginal_u = np.ones((M, 2))/2
     
-    a = rng.normal(0, 1, N) * (N**-0.5) # difference here
+    a = np.sqrt(0.1) * w_star + np.sqrt(0.9) * rng.normal(0, 1, N)# * (N**-0.5) # difference here
     v = np.ones(N)
+    
+    V = np.mean(v)
+    Q = F @ a
+    psi_uu = get_psi_uu(Q, V)
+    go, _ = get_go(Q, chi_uu, V)
+    
+    return psi_uu, chi_uu, log_chi_ul, marginal_u, a, v, go
+
+def informed_init(N, M, F, factor_edge_num, u_l_to_u_arr, ampInit_seed, s_star, w_star):
+    """
+    uninformed initialization
+    """
+    assert factor_edge_num == u_l_to_u_arr.shape[0]
+    rng = np.random.default_rng(ampInit_seed)
+    log_chi_ul = np.log(rng.random((factor_edge_num, 2)) * (N**-0.5))
+    log_chi_ul[:,0], log_chi_ul[:,1] = log_chi_ul[:,0] * (1-s_star[u_l_to_u_arr]), log_chi_ul[:,1] * s_star[u_l_to_u_arr]
+    log_chi_ul -= special.logsumexp(log_chi_ul, axis=1, keepdims=True)
+    marginal_u = np.zeros((M, 2))
+    marginal_u[:,0], marginal_u[:,1] = (s_star == 1).astype(int), (s_star != 1).astype(int)
+    chi_uu = 1 * marginal_u
+    #print(marginal_u)
+    
+    a = np.sqrt(0.99) * w_star + np.sqrt(0.01) * rng.normal(0, 1, N)
+    v = np.ones(N)* (N**-0.5)
     
     V = np.mean(v)
     Q = F @ a
@@ -108,7 +133,7 @@ def step_BP(psi_uu, log_chi_ul, l_u_to_v_l_arr, u_l_to_lprime_u_arr, u_l_to_u_ar
     
     '''compute psi_lu as a helper variable'''
     log_chi_vl_product = np.sum(log_chi_ul[l_u_to_v_l_arr], axis = 1)
-    log_psi_lu_unnorm = np.log( (np.exp(-beta)-1)*np.exp(log_chi_vl_product)+1 )
+    log_psi_lu_unnorm = np.log( np.maximum(epsilon, (-1)*np.exp(log_chi_vl_product)+1) )
     log_psi_lu = log_psi_lu_unnorm - special.logsumexp(log_psi_lu_unnorm, axis=1, keepdims=True)
     log_psi_lu_padded = np.vstack((log_psi_lu, np.zeros((1,log_psi_lu.shape[1])))) 
     
@@ -126,7 +151,7 @@ def step_BP(psi_uu, log_chi_ul, l_u_to_v_l_arr, u_l_to_lprime_u_arr, u_l_to_u_ar
     
     '''compute Phi_BP after updation'''
     log_chi_vl_N_product = np.sum(log_chi_ul_N[l_u_to_v_l_arr], axis = 1)
-    log_psi_lu_unnorm_N = np.log( (np.exp(-beta)-1)*np.exp(log_chi_vl_N_product)+1 )
+    log_psi_lu_unnorm_N = np.log( np.maximum(epsilon, (-1)*np.exp(log_chi_vl_N_product)+1 ))
     log_psi_lu_unnorm_N_padded = np.vstack((log_psi_lu_unnorm_N, np.zeros((1,log_psi_lu_unnorm_N.shape[1]))))
     log_part6_product = np.sum(log_psi_lu_unnorm_N_padded[u_to_l_u_arr],axis = 1)
     part6 = np.sum(np.log(np.sum(np.exp(log_part6_product),axis = 1)))
@@ -149,11 +174,11 @@ def step_AMP(a, v, chi_uu, go, F):
     go_N, _ = get_go(Q_N, chi_uu, V_N)
     d_go_N = - go_N**2
     
-    Lambda_N = -np.mean(d_go_N)
+    Lambda_N = -np.sum(d_go_N) / N
     Gamma_N = a * Lambda_N + go_N @ F
 
     a_N = np.tanh(Gamma_N)
-    v_N = np.maximum(epsilon, np.cosh(Gamma_N)**(-2))
+    v_N = 1 - a_N**2
     
     '''compute Phi_AMP after updation'''
     part1 = -N*Lambda_N/2 + np.sum(np.logaddexp(Gamma_N, -Gamma_N) - np.log(2))
@@ -163,12 +188,17 @@ def step_AMP(a, v, chi_uu, go, F):
     
     chi_p = chi_uu[:,0].reshape(-1)
     chi_n = chi_uu[:,1].reshape(-1)
-    log_integral = np.log(1/2*(chi_n*(special.erf((tao-Q_N)/np.sqrt(2*V_N))+special.erf((tao+Q_N)/np.sqrt(2*V_N))) +\
-                                chi_p*(special.erfc((tao-Q_N)/np.sqrt(2*V_N))+special.erfc((tao+Q_N)/np.sqrt(2*V_N)))))     
+    log_integral = np.log(np.maximum(epsilon,  1/2*(chi_n*(special.erf((tao-Q_N)/np.sqrt(2*V_N))+special.erf((tao+Q_N)/np.sqrt(2*V_N))) +\
+                                chi_p*(special.erfc((tao-Q_N)/np.sqrt(2*V_N))+special.erfc((tao+Q_N)/np.sqrt(2*V_N)))) ) )
     part5 = np.sum(log_integral)
-    phi_AMP = (part1+part2+part3+part4+part5) / N
+    Phi_AMP = (part1+part2+part3+part4+part5) / N
+    
+    #if abs(Phi_AMP) > 1000000:
+    #    print("here")
+    #    print(V_N, Q_N, go_N, d_go_N, Lambda_N, Gamma_N)
+    #    print(part1, part2, part3, part4, part5)
 
-    return a_N, v_N, psi_uu_N, go_N, phi_AMP
+    return a_N, v_N, psi_uu_N, go_N, Phi_AMP
 
 def get_overlapS(marginal_u, s_star):
     s_bar = np.sign(2*marginal_u[:,0]-1)
@@ -189,31 +219,28 @@ def get_go(Q, chi_uu, V):
     chis_p = chi_uu[:,0].reshape(-1)
     chis_n = chi_uu[:,1].reshape(-1)
     
-    numerator_devided_by_V = (np.exp(-(tao+Q)**2/2/V)-np.exp(-(tao-Q)**2/2/V))*(chis_n - chis_p)
-    denominator_part = chis_n*(special.erf((tao-Q)/np.sqrt(2*V))+special.erf((tao+Q)/np.sqrt(2*V))) +\
-                        chis_p*(special.erfc((tao-Q)/np.sqrt(2*V))+special.erfc((tao+Q)/np.sqrt(2*V)))
+    #Znn = (1+(2*chis_p-1)*special.erf(Q*(2*V)**(-1/2)))/2
+    #Znn = np.maximum(epsilon, Znn)
+    #return (2*np.pi*V)**(-1/2)*(2*chis_p-1)*np.exp(-Q**2/2/V)/Znn, Znn
+
+    """break symmetry"""
+    numerator_devided_by_V = (np.exp(-(tao+Q)**2/2/V)-np.exp(-(tao+breakSymmtry-Q)**2/2/V))*(chis_n - chis_p)
+    denominator_part = chis_n*(special.erf((tao+breakSymmtry-Q)/np.sqrt(2*V))+special.erf((tao+Q)/np.sqrt(2*V))) +\
+                        chis_p*(special.erfc((tao+breakSymmtry-Q)/np.sqrt(2*V))+special.erfc((tao+Q)/np.sqrt(2*V)))
     denominator = np.sqrt(V*np.pi/2)*denominator_part 
     
     denominator = np.maximum(epsilon, denominator)
     go = numerator_devided_by_V / denominator
+    
     return go, denominator
 
-def quantileSpread(xs, q):
-    """
-    Compute the difference between the q-th quantile and the (1-q)-th quantile of xs.
-    """
-    q = max(q, 1-q)
-    x1 = np.quantile(xs, q)
-    x2 = np.quantile(xs, 1-q)
-    return x1-x2    
-
 def normalize_2d(arr):
-    """normalizing arrays along the innermost dimension and return the normalized array."""
+    """For nomalization of massages"""
     assert (arr>=0).all()
     return arr / np.sum(arr, axis=1, keepdims=True)
 
 def list_padding(list_of_list, padding_num):
-    """Pad the sublists in a list to make the same length, so that they can be easily converted to numpy arrays."""
+    """Pad the sublists in a list to make the same length."""
     len_ls = [len(ls) for ls in list_of_list]
     max_len = max(len_ls)
     padded_list = [ls+[padding_num]*(max_len - len(ls)) for ls in list_of_list]

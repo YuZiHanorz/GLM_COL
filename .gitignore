@@ -1,0 +1,7 @@
+verify_*
+result/
+break_symmetry/
+compare/
+plots/
+__pycache__/
+test/
